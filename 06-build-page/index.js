@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { mkdir, readdir, copyFile, readFile, writeFile, rm } = require('fs/promises');
+const { mkdir, readdir, copyFile, readFile, writeFile, rm, unlink } = require('fs/promises');
 
 async function createProjectFolder() {
   const projectPath = path.join(__dirname, 'project-dist');
@@ -27,12 +27,75 @@ async function buildIndex() {
   }
 
   await writeFile(indexPath, template, 'utf8');
+  console.log('Create index.htmls');
+}
+
+async function mergeStyles() {
+  const stylesFolder = path.join(__dirname, 'styles');
+  const styleFile = path.join(__dirname, 'project-dist', 'style.css');
+  const files = await readdir(stylesFolder, { withFileTypes: true });
+  let stylesArr = [];
+  for (const file of files) {
+    const styleFilePath = path.join(stylesFolder, file.name);
+    if (file.isFile() && path.extname(file.name) === '.css') {
+      const styleFileContent = await readFile(styleFilePath, 'utf8');
+      stylesArr.push(styleFileContent);
+    }
+  }
+  await writeFile(styleFile, stylesArr.join('\n'), 'utf8');
+  console.log('Create style.css');
+}
+
+async function copyAssets(src, dest) {
+  //await rm(dest, { recursive: true, force: true });
+  await mkdir(dest, { recursive: true});
+  const filesAssets = await readdir(src, { withFileTypes: true });
+  for (const file of filesAssets) {
+    const srcPath = path.join(src, file.name);
+    const destPath = path.join(dest, file.name);
+    if (file.isDirectory()) {
+      await copyAssets(srcPath, destPath);
+    } else if (file.isFile()) {
+      await copyFile(srcPath, destPath);
+    }
+  }
+}
+
+async function buildAssets() {
+  const srcFolder = path.join(__dirname, 'assets');
+  const destFolder = path.join(__dirname, 'project-dist', 'assets');
+  await copyAssets(srcFolder, destFolder);
+}
+
+async function cleanAssets(dest, srcNames) {
+  const destAssetsFiles = await readdir(dest, { withFileTypes: true });
+
+  for (const file of destAssetsFiles) {
+    const destFilePath = path.join(dest, file.name);
+    if (!srcNames.has(file.name)) {
+      if (file.isDirectory()) {
+        await rm(destFilePath, { recursive: true, force: true });
+      } else if (file.isFile()) {
+        await unlink(destFilePath);
+      }
+    }
+  }
 }
 
 async function buildPage() {
   try {
     await createProjectFolder();
     await buildIndex();
+    await mergeStyles();
+    await buildAssets();
+
+    const srcAssets = path.join(__dirname, 'assets');
+    const destAssets = path.join(__dirname, 'project-dist', 'assets');
+    const srcAssetsFiles = await readdir(srcAssets, { withFileTypes: true });
+    const srcNames = new Set(srcAssetsFiles.map(file => file.name));
+
+    await cleanAssets(destAssets, srcNames);
+    console.log('Create page');
   } catch (error) {
     console.log(error)
   }  
